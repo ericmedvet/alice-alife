@@ -31,6 +31,14 @@ public record Instruction(
     List<boolean[]> semantics
 ) implements UnaryOperator<boolean[]> {
 
+  public int inputSize() {
+    return Utils.ceilLog2(semantics.size());
+  }
+
+  public int outputSize() {
+    return semantics.getFirst().length;
+  }
+
   public Instruction {
     // check num of cases
     if (!Utils.isPowerOfTwo(semantics.size())) {
@@ -39,15 +47,15 @@ public record Instruction(
       );
     }
     // check case size consistency
-    List<Integer> caseSizes = semantics.stream()
+    List<Integer> outputSizes = semantics.stream()
         .mapToInt(c -> c.length)
         .distinct()
         .boxed()
         .toList();
-    if (caseSizes.size() != 1) {
+    if (outputSizes.size() != 1) {
       throw new IllegalArgumentException(
           "Non uniform size of cases: %s".formatted(
-              caseSizes.stream()
+              outputSizes.stream()
                   .map(i -> Integer.toString(i))
                   .collect(
                       Collectors.joining("; ")
@@ -55,20 +63,11 @@ public record Instruction(
           )
       );
     }
-    // check case i/o size consistency
-    if (caseSizes.getFirst() != Utils.ceilLog2(semantics.size())) {
-      throw new IllegalArgumentException(
-          "Non-matching case input and output szie: %d != %d".formatted(
-              Utils.ceilLog2(semantics.size()),
-              caseSizes.getFirst()
-          )
-      );
-    }
   }
 
-  public Instruction(int nOfDimensions, int ioSize, boolean[] bitString) {
+  public Instruction(int nOfDimensions, int inputSize, int outputSize, boolean[] bitString) {
     // check size
-    int expectedSize = size(nOfDimensions, ioSize);
+    int expectedSize = size(nOfDimensions, inputSize, outputSize);
     if (bitString.length != expectedSize) {
       throw new IllegalArgumentException(
           "Wrong input size: %d found, %d+%d*%d+%d*%d=%d expected".formatted(
@@ -76,8 +75,8 @@ public record Instruction(
               Utils.ceilLog2(Continuation.values().length),
               nOfDimensions,
               Utils.ceilLog2(Movement.values().length),
-              Math.powExact(2, ioSize),
-              ioSize,
+              Math.powExact(2, inputSize),
+              outputSize,
               expectedSize
           )
       );
@@ -102,27 +101,28 @@ public record Instruction(
       );
       j = j + Utils.ceilLog2(Movement.values().length);
     }
-    List<boolean[]> lSemantics = new ArrayList<>();
-    for (int i = 0; i < Math.powExact(2, ioSize); i = i + 1) {
-      lSemantics.add(Utils.subBitString(bitString, j, ioSize));
-      j = j + ioSize;
+    List<boolean[]> lSemantics = new ArrayList<>(inputSize);
+    for (int i = 0; i < Math.powExact(2, inputSize); i = i + 1) {
+      lSemantics.add(Utils.subBitString(bitString, j, outputSize));
+      j = j + outputSize;
     }
     this(lContinuation, lMovements.stream().toList(), lSemantics.stream().toList());
   }
 
-  public static Instruction random(int nOfDimensions, int ioSize, RandomGenerator rg) {
+  public static Instruction random(int nOfDimensions, int inputSize, int outputSize, RandomGenerator rg) {
     return new Instruction(
         nOfDimensions,
-        ioSize,
-        Utils.randomBitString(size(nOfDimensions, ioSize), rg)
+        inputSize,
+        outputSize,
+        Utils.randomBitString(size(nOfDimensions, inputSize, outputSize), rg)
     );
   }
 
-  public static int size(int nOfDimensions, int ioSize) {
+  public static int size(int nOfDimensions, int inputSize, int outputSize) {
     int expectedSize = 0;
     expectedSize = expectedSize + Utils.ceilLog2(Continuation.values().length);
     expectedSize = expectedSize + nOfDimensions * Utils.ceilLog2(Movement.values().length);
-    expectedSize = expectedSize + Math.powExact(2, ioSize) * ioSize;
+    expectedSize = expectedSize + Math.powExact(2, inputSize) * outputSize;
     return expectedSize;
   }
 
@@ -144,10 +144,6 @@ public record Instruction(
       );
     }
     return semantics.get(Utils.bitStringToInt(input));
-  }
-
-  public int ioSize() {
-    return semantics.getFirst().length;
   }
 
   public boolean[] toBitString() {

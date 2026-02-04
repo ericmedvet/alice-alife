@@ -41,14 +41,15 @@ public class Environment {
     this.instructions = instructions;
     // check instructions ioSize consistency
     for (Instruction instruction : instructions) {
-      if (instruction.ioSize() != configuration.dataSize + configuration.individualMemorySize) {
+      if (instruction.inputSize() != configuration.instructionInputSize() || instruction.outputSize() != configuration
+          .instructionOutputSize()) {
         throw new IllegalArgumentException(
-            "Wrong IO size for instruction %s: %d != %d+%d=%d".formatted(
+            "Wrong IO size for instruction %s: %d->%d != %d->%d".formatted(
                 instruction,
-                instruction.ioSize(),
-                configuration.dataSize,
-                configuration.individualMemorySize,
-                configuration.dataSize + configuration.individualMemorySize
+                instruction.inputSize(),
+                instruction.outputSize(),
+                configuration.instructionInputSize(),
+                configuration.instructionOutputSize()
             )
         );
       }
@@ -91,10 +92,23 @@ public class Environment {
   }
 
   public State step(State state) {
+    record AgedData(long kOfBirth, boolean[] bitString) {
+
+    }
     List<Integer> toRemoveIndividuals = new ArrayList<>();
     List<Individual> toAddIndividuals = new ArrayList<>();
-    Map<Location, boolean[]> changedData = new HashMap<>();
+    Map<Location, AgedData> changedData = new HashMap<>();
     // iterate over individuals
+    Map<Location, boolean[]> occupancy = state.individuals.stream()
+        .collect(
+            Collectors.groupingBy(
+                Individual::location,
+                Collectors.collectingAndThen(
+                    Collectors.counting(),
+                    n -> Utils.intToBitString(n.intValue(), configuration.maxNOfIndividuals)
+                )
+            )
+        );
     for (int i = 0; i < state.individuals.size(); i = i + 1) {
       Individual individual = state.individuals.get(i);
       boolean[] lData = state.data.get(individual.location());
@@ -118,12 +132,24 @@ public class Environment {
         );
       }
       // process data
-      boolean[] input = Utils.concat(lData, individual.memory());
-      boolean[] output = instruction.apply(input);
-      changedData.put(individual.location(), Utils.subBitString(output, 0, lData.length));
-      individual.setMemory(
-          Utils.subBitString(output, lData.length, configuration.individualMemorySize)
+      boolean[] input = Utils.concat(
+          lData,
+          occupancy.get(individual.location()),
+          individual.memory()
       );
+      boolean[] output = instruction.apply(input);
+      boolean[] newData = Utils.subBitString(output, 0, lData.length);
+      boolean[] newMemory = Utils.subBitString(
+          output,
+          newData.length,
+          configuration.individualMemorySize
+      );
+      changedData.merge(
+          individual.location(),
+          new AgedData(individual.kOfBirth(), newData),
+          (oldAgedData, newAgedData) -> (oldAgedData.kOfBirth <= newAgedData.kOfBirth) ? oldAgedData : newAgedData
+      );
+      individual.setMemory(newMemory);
       individual.setLocation(
           update(
               individual.location(),
@@ -139,7 +165,7 @@ public class Environment {
         .filter(i -> !toRemoveIndividuals.contains(i))
         .toList();
     Map<Location, boolean[]> newData = new HashMap<>(state.data);
-    newData.putAll(changedData);
+    changedData.forEach((l, agedData) -> newData.put(l, agedData.bitString));
     return new State(
         state.k + 1,
         newData,
@@ -158,6 +184,14 @@ public class Environment {
       int individualMemorySize,
       int maxNOfIndividuals
   ) {
+
+    public int instructionInputSize() {
+      return dataSize + Utils.ceilLog2(maxNOfIndividuals) + individualMemorySize;
+    }
+
+    public int instructionOutputSize() {
+      return dataSize + individualMemorySize;
+    }
 
     private void checkState(State state) {
       // check location consistency
@@ -244,6 +278,7 @@ public class Environment {
       List<Individual> individuals,
       Configuration configuration
   ) {
+
     public int nOfFilledLocations() {
       return (int) individuals.stream().map(Individual::location).distinct().count();
     }
