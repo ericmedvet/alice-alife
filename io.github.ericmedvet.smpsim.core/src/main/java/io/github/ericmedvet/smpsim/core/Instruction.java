@@ -22,10 +22,10 @@ package io.github.ericmedvet.smpsim.core;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.UnaryOperator;
+import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 public record Instruction(
-    Order order,
     Continuation continuation,
     List<Movement> movements,
     List<boolean[]> semantics
@@ -33,7 +33,7 @@ public record Instruction(
 
   public Instruction {
     // check num of cases
-    if (Utils.isPowerOfTwo(semantics.size())) {
+    if (!Utils.isPowerOfTwo(semantics.size())) {
       throw new IllegalArgumentException(
           "Wrong number of cases: %d is not a power of 2".formatted(semantics.size())
       );
@@ -66,11 +66,72 @@ public record Instruction(
     }
   }
 
-  public enum Order { MOVE_AND_PROCESS, PROCESS_AND_MOVE }
+  public Instruction(int nOfDimensions, int ioSize, boolean[] bitString) {
+    // check size
+    int expectedSize = size(nOfDimensions, ioSize);
+    if (bitString.length != expectedSize) {
+      throw new IllegalArgumentException(
+          "Wrong input size: %d found, %d+%d*%d+%d*%d=%d expected".formatted(
+              bitString.length,
+              Utils.ceilLog2(Continuation.values().length),
+              nOfDimensions,
+              Utils.ceilLog2(Movement.values().length),
+              Math.powExact(2, ioSize),
+              ioSize,
+              expectedSize
+          )
+      );
+    }
+    int j = 0;
+    Continuation lContinuation = valid(
+        Continuation.class,
+        Utils.bitStringToInt(
+            Utils.subBitString(bitString, j, Utils.ceilLog2(Continuation.values().length))
+        )
+    );
+    j = j + Utils.ceilLog2(Continuation.values().length);
+    List<Movement> lMovements = new ArrayList<>();
+    for (int i = 0; i < nOfDimensions; i = i + 1) {
+      lMovements.add(
+          valid(
+              Movement.class,
+              Utils.bitStringToInt(
+                  Utils.subBitString(bitString, j, Utils.ceilLog2(Movement.values().length))
+              )
+          )
+      );
+      j = j + Utils.ceilLog2(Movement.values().length);
+    }
+    List<boolean[]> lSemantics = new ArrayList<>();
+    for (int i = 0; i < Math.powExact(2, ioSize); i = i + 1) {
+      lSemantics.add(Utils.subBitString(bitString, j, ioSize));
+      j = j + ioSize;
+    }
+    this(lContinuation, lMovements.stream().toList(), lSemantics.stream().toList());
+  }
 
-  public enum Continuation { NONE, DEATH, REPLICATION }
+  public static Instruction random(int nOfDimensions, int ioSize, RandomGenerator rg) {
+    return new Instruction(
+        nOfDimensions,
+        ioSize,
+        Utils.randomBitString(size(nOfDimensions, ioSize), rg)
+    );
+  }
 
-  public enum Movement { STAY, DECREASE, INCREASE }
+  public static int size(int nOfDimensions, int ioSize) {
+    int expectedSize = 0;
+    expectedSize = expectedSize + Utils.ceilLog2(Continuation.values().length);
+    expectedSize = expectedSize + nOfDimensions * Utils.ceilLog2(Movement.values().length);
+    expectedSize = expectedSize + Math.powExact(2, ioSize) * ioSize;
+    return expectedSize;
+  }
+
+  private static <E extends Enum<E>> E valid(Class<E> enumClass, int index) {
+    if (index >= enumClass.getEnumConstants().length) {
+      return enumClass.getEnumConstants()[0];
+    }
+    return enumClass.getEnumConstants()[index];
+  }
 
   @Override
   public boolean[] apply(boolean[] input) {
@@ -85,88 +146,26 @@ public record Instruction(
     return semantics.get(Utils.bitStringToInt(input));
   }
 
+  public int ioSize() {
+    return semantics.getFirst().length;
+  }
+
   public boolean[] toBitString() {
-    boolean[][] chunks = new boolean[1 + 1 + movements.size() + semantics.size()][];
-    chunks[0] = Utils.intToBitString(order.ordinal(), Order.values().length);
-    chunks[1] = Utils.intToBitString(continuation.ordinal(), Continuation.values().length);
+    boolean[][] chunks = new boolean[1 + movements.size() + semantics.size()][];
+    chunks[0] = Utils.intToBitString(continuation.ordinal(), Continuation.values().length);
     for (int i = 0; i < movements.size(); i = i + 1) {
-      chunks[2 + i] = Utils.intToBitString(movements.get(i).ordinal(), Movement.values().length);
+      chunks[1 + i] = Utils.intToBitString(movements.get(i).ordinal(), Movement.values().length);
     }
-    int j = 2 + movements.size();
+    int j = 1 + movements.size();
     for (int i = 0; i < semantics.size(); i = i + 1) {
       chunks[j + i] = semantics.get(i);
     }
     return Utils.concat(chunks);
   }
 
-  public Instruction(int nOfDimensions, int ioSize, boolean[] bits) {
-    // check size
-    int expectedSize = 0;
-    expectedSize = expectedSize + Utils.ceilLog2(Order.values().length);
-    expectedSize = expectedSize + Utils.ceilLog2(Continuation.values().length);
-    expectedSize = expectedSize + nOfDimensions * Utils.ceilLog2(Movement.values().length);
-    expectedSize = expectedSize + Math.powExact(2, ioSize) * ioSize;
-    if (bits.length != expectedSize) {
-      throw new IllegalArgumentException(
-          "Wrong input size: %d found, %d+%d*%d*%d+%d*%d=%d expected".formatted(
-              bits.length,
-              Utils.ceilLog2(Order.values().length),
-              Utils.ceilLog2(Continuation.values().length),
-              nOfDimensions,
-              Utils.ceilLog2(Movement.values().length),
-              Math.powExact(2, ioSize),
-              ioSize,
-              expectedSize
-          )
-      );
-    }
-    int j = 0;
-    Order lOrder = valid(
-        Order.class,
-        Utils.bitStringToInt(Utils.subBitString(bits, j, Utils.ceilLog2(Order.values().length)))
-    );
-    j = j + Utils.ceilLog2(Order.values().length);
-    Continuation lContinuation = valid(
-        Continuation.class,
-        Utils.bitStringToInt(
-            Utils.subBitString(bits, j, Utils.ceilLog2(Continuation.values().length))
-        )
-    );
-    j = j + Utils.ceilLog2(Continuation.values().length);
-    List<Movement> lMovements = new ArrayList<>();
-    for (int i = 0; i < nOfDimensions; i = i + 1) {
-      lMovements.add(
-          valid(
-              Movement.class,
-              Utils.bitStringToInt(
-                  Utils.subBitString(bits, j, Utils.ceilLog2(Movement.values().length))
-              )
-          )
-      );
-      j = j + Utils.ceilLog2(Movement.values().length);
-    }
-    List<boolean[]> lSemantics = new ArrayList<>();
-    for (int i = 0; i < Math.powExact(2, ioSize); i = i + 1) {
-      lSemantics.add(Utils.subBitString(bits, j, ioSize));
-      j = j + ioSize;
-    }
-    this(lOrder, lContinuation, lMovements.stream().toList(), lSemantics.stream().toList());
-  }
-
-  private static <E extends Enum<E>> E valid(Class<E> enumClass, int index) {
-    if (index >= enumClass.getEnumConstants().length) {
-      return enumClass.getEnumConstants()[0];
-    }
-    return enumClass.getEnumConstants()[index];
-  }
-
   @Override
   public String toString() {
-    return "<%s;%s;%s;%s>".formatted(
-        switch (order) {
-          case MOVE_AND_PROCESS -> "m";
-          case PROCESS_AND_MOVE -> "p";
-        },
+    return "<%s;%s;%s>".formatted(
         switch (continuation) {
           case NONE -> "_";
           case DEATH -> "-";
@@ -182,4 +181,9 @@ public record Instruction(
             .collect(Collectors.joining(","))
     );
   }
+
+  public enum Continuation { NONE, DEATH, REPLICATION }
+
+  public enum Movement { STAY, DECREASE, INCREASE }
+
 }

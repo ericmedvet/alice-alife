@@ -20,6 +20,7 @@
 package io.github.ericmedvet.smpsim.core;
 
 import java.util.Arrays;
+import java.util.random.RandomGenerator;
 
 public class Utils {
 
@@ -109,6 +110,14 @@ public class Utils {
   public static boolean[] subBitString(boolean[] bitString, int index, int length) {
     boolean[] out = new boolean[length];
     System.arraycopy(bitString, index, out, 0, length);
+    return out;
+  }
+
+  public static boolean[] randomBitString(int size, RandomGenerator rg) {
+    boolean[] out = new boolean[size];
+    for (int i = 0; i < out.length; i = i + 1) {
+      out[i] = rg.nextBoolean();
+    }
     return out;
   }
 }
