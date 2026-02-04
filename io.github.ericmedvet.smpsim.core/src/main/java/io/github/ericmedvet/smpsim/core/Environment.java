@@ -19,11 +19,6 @@
  */
 package io.github.ericmedvet.smpsim.core;
 
-public class Main {
-
-  static void main() {
-    System.out.println(Utils.bitStringToString(Utils.intToBitString(3, 10)));
-    System.out.println(Utils.bitStringToString(Utils.stringToBitString("001010")));
-  }
+public class Environment {
 
 }
